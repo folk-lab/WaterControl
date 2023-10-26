@@ -15,6 +15,26 @@ Water Control
 #define TIMEOUTMICROS 2000000 //If more micros have elapsed since last pulse, set pulse length to default
 #define DEFAULTMICROS 999999999
 #define NUMFLOWSENSORS 4
+
+#define DOSLOT 1 //slot location of 8DO module
+#define DISLOT 2 //slot location of 8DI module
+#define RTDSLOT 3 //slow location of 4RTD module
+#define NUMRTDS 4 //Number of RTDs per module
+
+//assign tag names to DI and DO channels
+
+#define DI_PRESSURE_OK 0x01
+#define DI_MTR_OL_OK 0x02
+#define DI_TANK_ABOVE_LOW 0x04
+#define DI_TANK_BELOW_FULL 0x08
+#define DI_START 0x10
+#define DI_STOP 0x20
+
+#define DO_FILL_V 0x01
+#define DO_K_MOTOR 0x02
+#define DO_START_LED 0x04
+#define DO_STOP_LED 0x08
+
 //These default values are for GPM flow and DegF temp for VFS50-5-1001
 /*
 #define DEFAULTMAXFLOWSCALE 5.28
@@ -37,6 +57,7 @@ volatile uint32_t lastpulseperiod[NUMPULSEINPUTS] = {0}; //pulse length in micro
 volatile uint8_t newpulseflag[NUMPULSEINPUTS] = {0}; //Set to 1 when a new pulse arrives
 // assign a MAC address for the Ethernet controller.
 // fill in your address here:
+
 byte mac[] = {
   0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0x99
 };
@@ -94,11 +115,17 @@ FlowSensor flowsensor[NUMFLOWSENSORS] =
 
 //FlowSensor flowsensor(4.2, 0, 100, 40, 140, 400, 2000000);
 
+//RTD module config: all channels on, DegC, high-side burnout, pt100, 33Hz digital filter
+const char P1_04RTD_CONFIG[] = { 0x40, 0x03, 0x60, 0x03, 0x20, 0x01, 0x80, 0x00 };
+
 uint32_t lastMillis, nowMillis, nowMicros = 0;
 uint32_t lastLoopTime = 0;
 uint32_t longestLoopTime = 0;
 uint32_t loopcount = 0;
 uint8_t faultflag = 0;
+uint8_t dibyte = 0;
+uint8_t dobyte = 0;
+float rtd[NUMRTDS];
 void setup() {
   // You can use Ethernet.init(pin) to configure the CS pin
   //Ethernet.init(10);  // Most Arduino shields
@@ -177,6 +204,9 @@ void setup() {
   //Configure watchdog to reset after 5000ms timeout
   P1.configWD(5000, TOGGLE);
   P1.startWD();
+
+  P1.configureModule(P1_04RTD_CONFIG, RTDSLOT);//send config to RTD module
+
   // Initialize SD library
   const int chipSelect = SDCARD_SS_PIN;
   while (!SD.begin(chipSelect)) {
@@ -226,6 +256,7 @@ void loop() {
 
   //Reset watchdog timer
   P1.petWD();
+  updateio();
   nowMillis = millis();
   nowMicros = micros();
   lastLoopTime = nowMillis - lastMillis;
@@ -249,15 +280,15 @@ void loop() {
       faultflag = 1;
     }
   }
-  //If any channel faulted, switch outputs on
-  if(faultflag)
+  if(dibyte & DI_MTR_OL_OK)
   {
-    P1.writeDiscrete(0xFF,1);  //Turn all slot 1 outputs on    
+    dobyte |= DO_K_MOTOR;
   }
   else
   {
-    P1.writeDiscrete(0x00,1);  //Turn all slot 1 outputs off    
+    dobyte &= ~DO_K_MOTOR;
   }
+  
   
   loopcount++;
   if(loopcount > 5000)
@@ -282,6 +313,25 @@ void loop() {
   listenForEthernetClients();
   handlemodbus();
 }
+
+void updateio(void)
+{
+  char  littleEndianTemp[16];			//Array to store unformatted little endian temperature Bytes
+  char  bigEndianTemp[16];		    //Array to store unformatted big endian temperature Bytes  
+  
+  dibyte = P1.readDiscrete(DISLOT);
+  P1.writeDiscrete(dobyte, DOSLOT);
+  P1.readBlockData(littleEndianTemp, (NUMRTDS * 4), 0, ANALOG_IN_BLOCK);
+  //Reverse byte order to correct for endianess
+  for(int i = 0; i < NUMRTDS; i++){
+    bigEndianTemp[4*i + 3] = littleEndianTemp[4*i + 0];   
+    bigEndianTemp[4*i + 2] = littleEndianTemp[4*i + 1];  
+    bigEndianTemp[4*i + 1] = littleEndianTemp[4*i + 2];  
+    bigEndianTemp[4*i + 0] = littleEndianTemp[4*i + 3];  
+  }
+  memcpy(rtd, bigEndianTemp, (NUMRTDS *4)); //Copy 16 bytes into our float array. Floats are 4 bytes each.
+} 
+
 
 void handlemodbus() {
   // listen for incoming clients
@@ -416,6 +466,22 @@ void listenForEthernetClients() {
             client.print(i);
             client.print(" Fault: ");
             client.print(flowsensor[i].gettempfault());
+            client.println("<br />");
+          }
+          client.print("DI Byte: ");
+          client.print(dibyte, HEX);
+          client.println("<br />");
+          client.print("DO Byte: ");
+          client.print(dobyte, HEX);
+          client.println("<br />");
+
+          for(int i = 0; i < NUMRTDS; i++)
+          {
+            client.print("RTD Temp ");
+            client.print(i);
+            client.print(": ");
+            client.print(rtd[i]);
+            client.print("DegC");
             client.println("<br />");
           }
           client.print("Millis: ");
@@ -600,7 +666,6 @@ void printFile(const char *filename) {
   // Close the file
   file.close();
 }
-
 
 
 
