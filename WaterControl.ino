@@ -16,6 +16,10 @@ Water Control
 #define DEFAULTMICROS 999999999
 #define NUMFLOWSENSORS 4
 
+#define LEDFLASHMILLIS 1000 //Flashing frequency for LED indicators
+#define FLOATDELAYMILLIS 2000 //Delay before acting on float switches
+#define TEMPDELAYMILLIS 2000//Delay before acting on tank temperature
+
 #define DOSLOT 1 //slot location of 8DO module
 #define DISLOT 2 //slot location of 8DI module
 #define RTDSLOT 3 //slow location of 4RTD module
@@ -45,6 +49,10 @@ Water Control
 #define DEFAULTTEMPFREQ 100.0
 #define DEFAULTTIMEOUTMICROS 2000000
 */
+#define DEFAULTVALVEONTEMP 25.0 //default temperature to turn on city water
+#define DEFAULTVALVEDELTATEMP 5.0 //temp must be ontemp - delta to turn off
+#define VALVE_RTDNUM 0 //index of rtd temp array to use for valve
+
 //These default values are for LPM flow and DegC temp for VFS50-5-1001
 #define DEFAULTMAXFLOWSCALE 20.0
 #define DEFAULTMINFLOWSCALE 0.0
@@ -80,6 +88,26 @@ typedef struct FlowConfig
   float tempfreq;
   uint32_t timeoutmicros;
 }FlowConfig;
+
+typedef enum PumpState
+{
+  STANDBY_OFF,
+  FAULT_OFF,
+  ON
+} PumpState;
+
+PumpState pumpstate = STANDBY_OFF;
+
+typedef enum ValveState
+{
+  OFF,
+  LEVEL_FILLING,
+  TEMP_FILLING,
+} ValveState;
+
+ValveState valvestate = OFF;
+uint8_t lastfaultstate = 0x00;
+
 
 // Our configuration structure.
 //
@@ -122,10 +150,15 @@ uint32_t lastMillis, nowMillis, nowMicros = 0;
 uint32_t lastLoopTime = 0;
 uint32_t longestLoopTime = 0;
 uint32_t loopcount = 0;
+uint32_t lowlevelmillis, highlevelmillis, tempmillis = 0; //timers for low and high level switches, temperature
 uint8_t faultflag = 0;
 uint8_t dibyte = 0;
 uint8_t dobyte = 0;
 float rtd[NUMRTDS];
+float valveontemp = DEFAULTVALVEONTEMP;
+float valvedeltatemp = DEFAULTVALVEDELTATEMP;
+
+
 void setup() {
   // You can use Ethernet.init(pin) to configure the CS pin
   //Ethernet.init(10);  // Most Arduino shields
@@ -233,7 +266,9 @@ void setup() {
   
   // float voltage value cast to 32bit int and split between 2x 16bit ints
   
-  
+  highlevelmillis = millis();
+  lowlevelmillis = millis();
+  tempmillis = millis();
   //uint32_t dualValue1 = *((uint32_t *)&testfloat);
   uint32_t *dualValue1 = (uint32_t *)&testfloat;
   //uint16_t *w1 = w2 + 2;
@@ -247,6 +282,7 @@ void setup() {
   // write values to input registers for voltage value
   modbusTCPServer.holdingRegisterWrite(0x00, register1);
   modbusTCPServer.holdingRegisterWrite(0x01, register2);
+
 
 }
 
@@ -262,6 +298,7 @@ void loop() {
   lastLoopTime = nowMillis - lastMillis;
   lastMillis = nowMillis;
   faultflag = 0;
+  //process flow sensors
   for(int i = 0; i < NUMFLOWSENSORS; i++)
   {
     if(newpulseflag[i])
@@ -280,6 +317,148 @@ void loop() {
       faultflag = 1;
     }
   }
+  //process pump
+  switch(pumpstate)
+  {
+    case STANDBY_OFF:
+    {
+      dobyte &= ~DO_K_MOTOR; //clear motor contactor bit
+      dobyte &= ~DO_STOP_LED;//clear red LED
+      //flashgreenbutton();
+      if(dibyte & DI_START)//if start button pushed
+      {
+        pumpstate = ON;
+      }      
+      break;
+    }
+    case FAULT_OFF:
+    {
+      dobyte &= ~DO_K_MOTOR; //clear motor contactor bit
+      dobyte &= ~DO_START_LED; //clear green button LED
+      //flashredbutton();
+      if(!(dibyte & DI_STOP)) //stop button acknowledges fault
+      {
+        pumpstate = STANDBY_OFF;
+      }
+      break;
+    }
+    case ON:
+    {
+      dobyte &= ~DO_STOP_LED;//clear red LED
+      dobyte |= DO_START_LED;//set green LED
+      if(dibyte & DI_TANK_ABOVE_LOW)//tank level above low, reset low level timer
+      {
+        lowlevelmillis = nowMillis;
+      }
+      if(!(dibyte & DI_STOP)) //stop button
+      {
+        pumpstate = STANDBY_OFF;
+      }      
+      if(!(dibyte & DI_MTR_OL_OK) || !(dibyte & DI_PRESSURE_OK)) //motor overload or pump pressure signals missing should fault immediately 
+      {
+        lastfaultstate = dibyte;
+        pumpstate = FAULT_OFF;
+      }
+      if(!(dibyte & DI_TANK_ABOVE_LOW)) //low level should fault if persists longer than delay
+      {
+        if((nowMillis - lowlevelmillis) >= FLOATDELAYMILLIS)
+        {
+          pumpstate = FAULT_OFF;
+          //last fault = 
+        }        
+      }
+      if(pumpstate == ON)//if state is still on we can start the motor
+      {
+        dobyte |= DO_K_MOTOR; //set motor contactor bit
+      }
+      else//this is redundant, but response will be faster if we clear now
+      {
+        dobyte &= ~DO_K_MOTOR;//clear motor contactor bit
+        updateio();
+      }
+      break;
+    }
+  }
+  //process water valve
+  switch(valvestate)
+  {
+    case OFF:
+    {
+      dobyte &= ~DO_FILL_V;
+      if(!(dibyte & DI_TANK_BELOW_FULL))//tank level above full, reset level timer
+      {
+        highlevelmillis = nowMillis;
+      }
+      else//tank below full, check for delay time
+      {
+        if(((nowMillis - highlevelmillis) >= FLOATDELAYMILLIS) && (pumpstate == ON))
+        {
+          valvestate = LEVEL_FILLING;
+        }
+      }
+      if(rtd[VALVE_RTDNUM] < valveontemp)//below temp, reset temp timer
+      {
+        tempmillis = nowMillis;
+      }
+      else
+      {
+        if(((nowMillis - tempmillis) >= TEMPDELAYMILLIS) && (pumpstate == ON))
+        {
+          valvestate = TEMP_FILLING;
+        }
+      }      
+      break;
+    }
+    case LEVEL_FILLING:
+    {
+      if(dibyte & DI_TANK_BELOW_FULL)//tank below full, reset level timer
+      {
+        highlevelmillis = nowMillis;
+      }
+      else
+      {
+        if((nowMillis - highlevelmillis) >= FLOATDELAYMILLIS)//if above full for delay period
+        {
+          valvestate = OFF;
+        }
+      }
+      if(pumpstate != ON)
+      {
+        valvestate = OFF;
+      }
+      if(valvestate == LEVEL_FILLING)
+      {
+        dobyte |= DO_FILL_V;
+      }      
+      break;
+    }
+    case TEMP_FILLING:
+    {
+      if(rtd[VALVE_RTDNUM] >= (valveontemp - valvedeltatemp))//still above temp, reset delay timer
+      { 
+        tempmillis = nowMillis;
+      }
+      else
+      {
+        if(nowMillis - tempmillis >= TEMPDELAYMILLIS)//if below temp for delay
+        {
+          valvestate = OFF;
+        }
+      }
+      if(pumpstate != ON)
+      {
+        valvestate = OFF;
+      }
+      if(valvestate == TEMP_FILLING)
+      {
+         dobyte |= DO_FILL_V;
+      }
+      break;
+    }
+  }
+
+  
+  /*
   if(dibyte & DI_MTR_OL_OK)
   {
     dobyte |= DO_K_MOTOR;
@@ -288,6 +467,7 @@ void loop() {
   {
     dobyte &= ~DO_K_MOTOR;
   }
+  */
   
   
   loopcount++;
