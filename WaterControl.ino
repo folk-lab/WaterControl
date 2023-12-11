@@ -571,15 +571,16 @@ void loop() {
       Serial.println("No Ethernet Link");
     }
     //If server connected, proceed
-    if(loggingserverconnected)
+    //if(loggingserverconnected)
+    if(1)
     {
-      //checkForNTPResync();
-      //char time[64];
-      //sprintf(time, "%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
-      //Serial.println(time);
+      checkForNTPResync();
+      char nowtime[64];
+      sprintf(nowtime, "20%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
+      Serial.println(nowtime);
       for(int i = 0; i < NUMFLOWSENSORS; i++)
       {
-        updatelogger("LOCATION", "TAG", "VARIABLE", "UNIT", 4.0, time);
+        updatelogger("LOCATION", "TAG", "VARIABLE", "UNIT", 4.0, nowtime);
       }
     }    
   }  
@@ -861,7 +862,7 @@ void loadConfiguration(const char *filename, Config &config) {
   File file = SD.open(filename);
 
   // Allocate a temporary JsonDocument
-  DynamicJsonDocument doc(4048);
+  DynamicJsonDocument doc(2048);
 
   // Deserialize the JSON document
   DeserializationError error = deserializeJson(doc, file);
@@ -948,63 +949,42 @@ void saveConfiguration(const char *filename, const Config &config) {
   }
 
   // Allocate a temporary JsonDocument
-StaticJsonDocument<2048> doc;
+DynamicJsonDocument doc(2048);
 
-JsonObject doc_0 = doc.createNestedObject();
-doc_0["tag"] = "Flowsensor1";
-doc_0["location"] = "Compressor Room";
-doc_0["flowunit"] = "lpm";
-doc_0["tempunit"] = "degC";
-doc_0["maxflowscale"] = 20;
-doc_0["minflowscale"] = 0;
-doc_0["flowthresh"] = 9;
-doc_0["flowfreq"] = 100;
-doc_0["maxtempscale"] = 65.56;
-doc_0["mintempscale"] = -10;
-doc_0["tempfreq"] = 100;
-doc_0["timeoutmicros"] = 3000000;
+JsonArray flowsensors = doc.createNestedArray("flowsensors");
 
-JsonObject doc_1 = doc.createNestedObject();
-doc_1["tag"] = "Flowsensor2";
-doc_1["location"] = "Compressor Room";
-doc_1["flowunit"] = "lpm";
-doc_1["tempunit"] = "degC";
-doc_1["maxflowscale"] = 20;
-doc_1["minflowscale"] = 0;
-doc_1["flowthresh"] = 9;
-doc_1["flowfreq"] = 100;
-doc_1["maxtempscale"] = 65.56;
-doc_1["mintempscale"] = -10;
-doc_1["tempfreq"] = 100;
-doc_1["timeoutmicros"] = 3000000;
+for(int i = 0; i < NUMFLOWSENSORS; i++)
+{
+  JsonObject flowsensors_i = flowsensors.createNestedObject();
+  flowsensors_i["tag"] = config.flowconfig[i].tag;
+  flowsensors_i["location"] = config.flowconfig[i].location;
+  flowsensors_i["flowunit"] = config.flowconfig[i].flowunit;
+  flowsensors_i["tempunit"] = config.flowconfig[i].tempunit;
+  flowsensors_i["maxflowscale"] = config.flowconfig[i].maxflowscale;
+  flowsensors_i["minflowscale"] = config.flowconfig[i].minflowscale;
+  flowsensors_i["flowthresh"] = config.flowconfig[i].flowthresh;
+  flowsensors_i["flowfreq"] = config.flowconfig[i].flowfreq;
+  flowsensors_i["maxtempscale"] = config.flowconfig[i].maxtempscale;
+  flowsensors_i["mintempscale"] = config.flowconfig[i].mintempscale;
+  flowsensors_i["tempfreq"] = config.flowconfig[i].tempfreq;
+  flowsensors_i["timeoutmicros"] = config.flowconfig[i].timeoutmicros;
+}
 
-JsonObject doc_2 = doc.createNestedObject();
-doc_2["tag"] = "Flowsensor3";
-doc_2["location"] = "Compressor Room";
-doc_2["flowunit"] = "lpm";
-doc_2["tempunit"] = "degC";
-doc_2["maxflowscale"] = 20;
-doc_2["minflowscale"] = 0;
-doc_2["flowthresh"] = 9;
-doc_2["flowfreq"] = 100;
-doc_2["maxtempscale"] = 65.56;
-doc_2["mintempscale"] = -10;
-doc_2["tempfreq"] = 100;
-doc_2["timeoutmicros"] = 3000000;
+JsonArray tempsensors = doc.createNestedArray("tempsensors");
 
-JsonObject doc_3 = doc.createNestedObject();
-doc_3["tag"] = "Flowsensor4";
-doc_3["location"] = "Compressor Room";
-doc_3["flowunit"] = "lpm";
-doc_3["tempunit"] = "degC";
-doc_3["maxflowscale"] = 20;
-doc_3["minflowscale"] = 0;
-doc_3["flowthresh"] = 9;
-doc_3["flowfreq"] = 100;
-doc_3["maxtempscale"] = 65.56;
-doc_3["mintempscale"] = -10;
-doc_3["tempfreq"] = 100;
-doc_3["timeoutmicros"] = 3000000;
+for(int i = 0; i < NUMRTDS; i++)
+{
+  JsonObject tempsensors_i = tempsensors.createNestedObject();
+  tempsensors_i["tag"] = config.rtdconfig[i].tag;
+  tempsensors_i["location"] = config.rtdconfig[i].location;
+  tempsensors_i["tempunit"] = config.rtdconfig[i].tempunit;
+}
+
+doc["valvertdnum"] = config.valvertdnum;
+doc["valveontemp"] = config.valveontemp;
+doc["valvedeltatemp"] = config.valvedeltatemp;
+doc["serverip"] = config.serverip;
+doc["serverport"] = config.serverport;
 
   // Serialize JSON to file
   if (serializeJsonPretty(doc, file) == 0) {
