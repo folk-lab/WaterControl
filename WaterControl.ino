@@ -6,6 +6,9 @@ Water Control
 #include <SPI.h>
 #include <SD.h>
 #include <P1AM.h>
+#include <HttpClient.h>
+#include <Time.h>
+#include <RTCZero.h>
 #include <ArduinoRS485.h> // ArduinoModbus depends on the ArduinoRS485 library
 #include <ArduinoModbus.h>
 #include <ArduinoJson.h>
@@ -19,7 +22,7 @@ Water Control
 #define LEDFLASHMILLIS 1000 //Flashing frequency for LED indicators
 #define FLOATDELAYMILLIS 2000 //Delay before acting on float switches
 #define TEMPDELAYMILLIS 2000//Delay before acting on tank temperature
-
+#define LOGGERUPDATEMILLIS 5000 //Interval to update logging server values
 #define DOSLOT 1 //slot location of 8DO module
 #define DISLOT 2 //slot location of 8DI module
 #define RTDSLOT 3 //slow location of 4RTD module
@@ -39,6 +42,11 @@ Water Control
 #define DO_START_LED 0x04
 #define DO_STOP_LED 0x08
 
+//Ethernet retry count and timeout in millisec
+#define ETH_RETRANSMIT_COUNT 1
+#define ETH_RETRANSMIT_TIMEOUT 50
+
+
 //These default values are for GPM flow and DegF temp for VFS50-5-1001
 /*
 #define DEFAULTMAXFLOWSCALE 5.28
@@ -49,9 +57,9 @@ Water Control
 #define DEFAULTTEMPFREQ 100.0
 #define DEFAULTTIMEOUTMICROS 2000000
 */
-#define DEFAULTVALVEONTEMP 25.0 //default temperature to turn on city water
-#define DEFAULTVALVEDELTATEMP 5.0 //temp must be ontemp - delta to turn off
-#define VALVE_RTDNUM 0 //index of rtd temp array to use for valve
+#define DEFAULTVALVEONTEMP 18.0 //default temperature to turn on city water
+#define DEFAULTVALVEDELTATEMP 3.0 //temp must be ontemp - delta to turn off
+#define DEFAULTVALVE_RTDNUM 0 //index of rtd temp array to use for valve
 
 //These default values are for LPM flow and DegC temp for VFS50-5-1001
 #define DEFAULTMAXFLOWSCALE 20.0
@@ -71,13 +79,41 @@ byte mac[] = {
 };
 // assign an IP address for the controller:
 IPAddress ip(192, 168, 1, 20);
+//char ip[]="192.168.1.20";
+IPAddress subnet(255, 255, 255, 0); //subnet mask
+IPAddress gateway(192, 168, 1, 1); //IP Address of the gateway.
+IPAddress dns(8, 8, 8, 8); //IP Address of the DNS server.
+IPAddress timeServer(216, 239, 35, 8);  // Google's ntp server address
+
+IPAddress loggingServer;//datalogging server to connect to, defined in config
+
+RTCZero rtc;  //rtc object to get the time from
+
+#define MINUTE 60
+#define HOUR 60 * MINUTE
+#define DAY 24 * HOUR
+const unsigned int ntpSyncTime = DAY; //86400 seconds. Resync every 24 hours.
+
+//If your timezone isn't here, lookup an epoch offset list to find the correct value
+const long EDT = -4*HOUR;// epoch offset for EDT timezone
+const long EST = -5*HOUR;// epoch offset for EST timezone
+const long PDT = -7*HOUR;// epoch offset for PDT timezone
+const long PST = -8*HOUR;// epoch offset for PST timezone
+long timeZoneOffset = PST;  // timezone to report time from. 
+
+
+unsigned int localPort = 8888;
+const int NTP_PACKET_SIZE = 48; //size of ntp buffer
+byte packetBuffer[NTP_PACKET_SIZE]; // buffer to store ntp data
+
+unsigned long ntpLastUpdate = 0;  // var to store time of last sync
 
 typedef struct FlowConfig
 {
-  String tag;
-  String location;
-  String flowunit;
-  String tempunit;
+  char tag[32];
+  char location[32];
+  char flowunit[16];
+  char tempunit[16];
   float maxflowscale;
   float minflowscale;
   float flowthresh;
@@ -88,6 +124,32 @@ typedef struct FlowConfig
   float tempfreq;
   uint32_t timeoutmicros;
 }FlowConfig;
+
+typedef struct RTDConfig
+{
+  char tag[32];
+  char location[32];
+  char tempunit[16];
+}RTDConfig;
+
+// Our configuration structure.
+//
+// Never use a JsonDocument to store the configuration!
+// A JsonDocument is *not* a permanent storage; it's only a temporary storage
+// used during the serialization phase. See:
+// https://arduinojson.org/v6/faq/why-must-i-create-a-separate-config-object/
+struct Config {
+  FlowConfig flowconfig[NUMFLOWSENSORS];
+  RTDConfig rtdconfig[NUMRTDS];
+  uint8_t valvertdnum;
+  float valveontemp;
+  float valvedeltatemp;
+  char serverip[64];
+  int serverport;
+};
+
+const char *filename = "/config.txt";  // <- SD library uses 8.3 filenames
+Config config;                         // <- global configuration object
 
 typedef enum PumpState
 {
@@ -108,30 +170,15 @@ typedef enum ValveState
 ValveState valvestate = OFF;
 uint8_t lastfaultstate = 0x00;
 
-
-// Our configuration structure.
-//
-// Never use a JsonDocument to store the configuration!
-// A JsonDocument is *not* a permanent storage; it's only a temporary storage
-// used during the serialization phase. See:
-// https://arduinojson.org/v6/faq/why-must-i-create-a-separate-config-object/
-struct Config {
-  FlowConfig flowconfig[NUMFLOWSENSORS];
-  //char hostname[64];
-  //int port;
-};
-
-
-
-const char *filename = "/config.txt";  // <- SD library uses 8.3 filenames
-Config config;                         // <- global configuration object
-
 // Initialize the Ethernet server library
 // with the IP address and port you want to use
 // (port 80 is default for HTTP):
 EthernetServer server(80);
 EthernetServer mbServer(502);
+EthernetClient client;
+HttpClient http=HttpClient(client, loggingServer, config.serverport);
 ModbusTCPServer modbusTCPServer;
+EthernetUDP Udp;  // udp instance
 
 FlowSensor flowsensor[NUMFLOWSENSORS] = 
 {
@@ -150,14 +197,14 @@ uint32_t lastMillis, nowMillis, nowMicros = 0;
 uint32_t lastLoopTime = 0;
 uint32_t longestLoopTime = 0;
 uint32_t loopcount = 0;
-uint32_t lowlevelmillis, highlevelmillis, tempmillis = 0; //timers for low and high level switches, temperature
+uint32_t lowlevelmillis, highlevelmillis, tempmillis, loggermillis = 0; //timers for low and high level switches, temperature, logger update
 uint8_t faultflag = 0;
 uint8_t dibyte = 0;
 uint8_t dobyte = 0;
 float rtd[NUMRTDS];
 float valveontemp = DEFAULTVALVEONTEMP;
 float valvedeltatemp = DEFAULTVALVEDELTATEMP;
-
+bool loggingserverconnected = false;
 
 void setup() {
   // You can use Ethernet.init(pin) to configure the CS pin
@@ -167,6 +214,8 @@ void setup() {
   //Ethernet.init(20);  // Teensy++ 2.0
   //Ethernet.init(15);  // ESP8266 with Adafruit FeatherWing Ethernet
   //Ethernet.init(33);  // ESP32 with Adafruit FeatherWing Ethernet
+
+
 
   pinMode(A1, INPUT_PULLUP);
   pinMode(A2, INPUT_PULLUP);
@@ -179,20 +228,43 @@ void setup() {
 
   pinMode(6, INPUT_PULLUP);
   pinMode(7, INPUT_PULLUP);
-  
-  // start the SPI library:
-  SPI.begin();
-
-  // start the Ethernet connection
-  Ethernet.begin(mac, ip);
-
+ 
   // Open serial communications and wait for port to open:
   Serial.begin(9600);
   /*
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
-  */
+  */ 
+  // start the SPI library:
+  SPI.begin();
+
+  while (!P1.init())
+  { 
+    ; //Wait for Modules to Sign on   
+  }
+  //Configure watchdog to reset after 5000ms timeout
+  P1.configWD(5000, TOGGLE);
+  P1.startWD();
+
+  P1.configureModule(P1_04RTD_CONFIG, RTDSLOT);//send config to RTD module
+
+  // Initialize SD library
+  const int chipSelect = SDCARD_SS_PIN;
+  while (!SD.begin(chipSelect)) {
+    Serial.println(F("Failed to initialize SD library"));
+    delay(1000);
+  }
+  Serial.println(F("Loading configuration..."));
+  loadConfiguration(filename, config);
+
+  // Create configuration file
+  //Serial.println(F("Saving configuration..."));
+  //saveConfiguration(filename, config);
+  display_freeram();
+
+  // start the Ethernet connection
+  Ethernet.begin(mac, ip, dns, gateway, subnet);
 
   // Check for Ethernet hardware present
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
@@ -204,7 +276,32 @@ void setup() {
   if (Ethernet.linkStatus() == LinkOFF) {
     Serial.println("Ethernet cable is not connected.");
   }
-
+  Ethernet.setRetransmissionCount(ETH_RETRANSMIT_COUNT);
+  Ethernet.setRetransmissionTimeout(ETH_RETRANSMIT_TIMEOUT);
+  if (loggingServer.fromString(config.serverip))
+  { // try to parse into the IPAddress
+    Serial.println(loggingServer); // print the parsed IPAddress 
+  }
+  else
+  {
+    Serial.println("UnParsable IP");
+  }
+  client.setConnectionTimeout(ETH_RETRANSMIT_TIMEOUT);
+  if (client.connect(loggingServer, config.serverport))
+  {
+    loggingserverconnected = true;
+    Serial.println("Connected to server");
+  }
+  else
+  {
+    loggingserverconnected = false;
+    Serial.println("Could not connect to server...");
+  }
+  if (client.connected())
+  {
+    Serial.println("Connected. Stopping now");
+  }
+  http=HttpClient(client, loggingServer, config.serverport);
   // start listening for clients
   server.begin();
   mbServer.begin();
@@ -230,29 +327,19 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(6), pin6int, FALLING);
   attachInterrupt(digitalPinToInterrupt(7), pin7int, FALLING);
   
-  while (!P1.init())
-  { 
-    ; //Wait for Modules to Sign on   
+
+  
+  getTimeAndDate();   // initial sync from ntp server
+  rtc.begin();  // start real-time-clock
+  printTime();
+
+  //reinitialize flowsensors with loaded config values
+  for(int i = 0; i < NUMFLOWSENSORS; i++)
+  {
+    flowsensor[i].reinit(config.flowconfig[i].maxflowscale,config.flowconfig[i].minflowscale, config.flowconfig[i].flowthresh, config.flowconfig[i].flowfreq,
+    config.flowconfig[i].maxtempscale, config.flowconfig[i].mintempscale, config.flowconfig[i].tempthresh, config.flowconfig[i].tempfreq, config.flowconfig[i].timeoutmicros);
   }
-  //Configure watchdog to reset after 5000ms timeout
-  P1.configWD(5000, TOGGLE);
-  P1.startWD();
-
-  P1.configureModule(P1_04RTD_CONFIG, RTDSLOT);//send config to RTD module
-
-  // Initialize SD library
-  const int chipSelect = SDCARD_SS_PIN;
-  while (!SD.begin(chipSelect)) {
-    Serial.println(F("Failed to initialize SD library"));
-    delay(1000);
-  }
-  Serial.println(F("Loading configuration..."));
-  loadConfiguration(filename, config);
-
-  // Create configuration file
-  Serial.println(F("Saving configuration..."));
-  saveConfiguration(filename, config);
-  display_freeram();
+  
   // configure a holding register at address 0x00
   modbusTCPServer.configureHoldingRegisters(0x00, 200);
   for(int i = 0; i < 200; i++)
@@ -323,8 +410,8 @@ void loop() {
     case STANDBY_OFF:
     {
       dobyte &= ~DO_K_MOTOR; //clear motor contactor bit
-      dobyte &= ~DO_STOP_LED;//clear red LED
-      //flashgreenbutton();
+      dobyte |= DO_STOP_LED;//set red LED
+      flashstartled();
       if(dibyte & DI_START)//if start button pushed
       {
         pumpstate = ON;
@@ -335,7 +422,7 @@ void loop() {
     {
       dobyte &= ~DO_K_MOTOR; //clear motor contactor bit
       dobyte &= ~DO_START_LED; //clear green button LED
-      //flashredbutton();
+      flashstopled();
       if(!(dibyte & DI_STOP)) //stop button acknowledges fault
       {
         pumpstate = STANDBY_OFF;
@@ -396,7 +483,8 @@ void loop() {
           valvestate = LEVEL_FILLING;
         }
       }
-      if(rtd[VALVE_RTDNUM] < valveontemp)//below temp, reset temp timer
+      //if(rtd[VALVE_RTDNUM] < valveontemp)//below temp, reset temp timer
+      if(rtd[config.valvertdnum] < config.valveontemp)//below temp, reset temp timer
       {
         tempmillis = nowMillis;
       }
@@ -434,7 +522,7 @@ void loop() {
     }
     case TEMP_FILLING:
     {
-      if(rtd[VALVE_RTDNUM] >= (valveontemp - valvedeltatemp))//still above temp, reset delay timer
+      if(rtd[config.valvertdnum] >= (config.valveontemp - config.valvedeltatemp))//still above temp, reset delay timer
       { 
         tempmillis = nowMillis;
       }
@@ -456,34 +544,53 @@ void loop() {
       break;
     }
   }
+  //update logging server if time expired, also check NTP sync
+  if(nowMillis - loggermillis >= LOGGERUPDATEMILLIS)
+  {
+    loggermillis = nowMillis;
+    if(Ethernet.linkStatus() == LinkON)
+    {
+      //checkForNTPResync();
+      //char time[64];
+      //sprintf(time, "%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
+      //Serial.println(time);
+      if (client.connect(loggingServer, config.serverport))
+      {
+        loggingserverconnected = true;
+      // Serial.println("Connected to server");
+      }
+      else
+      {
+        loggingserverconnected = false;
+        Serial.println("Could not connect to server...");
+      }
+    
+    }
+    else
+    {
+      Serial.println("No Ethernet Link");
+    }
+    //If server connected, proceed
+    if(loggingserverconnected)
+    {
+      //checkForNTPResync();
+      //char time[64];
+      //sprintf(time, "%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
+      //Serial.println(time);
+      for(int i = 0; i < NUMFLOWSENSORS; i++)
+      {
+        updatelogger("LOCATION", "TAG", "VARIABLE", "UNIT", 4.0, time);
+      }
+    }    
+  }  
 
-  
-  /*
-  if(dibyte & DI_MTR_OL_OK)
-  {
-    dobyte |= DO_K_MOTOR;
-  }
-  else
-  {
-    dobyte &= ~DO_K_MOTOR;
-  }
-  */
-  
-  
   loopcount++;
   if(loopcount > 5000)
   {
     longestLoopTime = 0;
     loopcount = 0;
-    /*
-    for(int i = 0; i < NUMFLOWSENSORS; i++)
-    {
-      flowsensor[i].resetfault();
-
-    }
-    */
-
   }
+
   if(lastLoopTime > longestLoopTime)  
   {
     longestLoopTime = lastLoopTime;
@@ -493,6 +600,59 @@ void loop() {
   listenForEthernetClients();
   handlemodbus();
 }
+
+/*
+String buildJSON(String LOCATION, String TAG, String Data, String Unit, String Time)
+{
+  return "{  \"log_session\": {\n    \"location\": \"" + LOCATION + "\",\n    \"tag\": \"" + TAG + "\"\n  },\n  \"record\": {\n    \"temperature\": {\n      \"unit\": \"" + Unit + "\",\n      \"value\": \"" + Data + "\"\n    },\n    \"time\": \"" + Time + "\"\n}}";
+}
+*/
+
+void updatelogger(char * LOCATION, char * TAG, char * VARIABLE, char * UNIT, float DATA, String time)
+{
+String output;
+StaticJsonDocument<192> doc;
+
+JsonObject log_session = doc.createNestedObject("log_session");
+log_session["location"] = LOCATION;
+log_session["tag"] = TAG;
+
+JsonObject record = doc.createNestedObject("record");
+
+JsonObject record_variable = record.createNestedObject(VARIABLE);
+record_variable["unit"] = UNIT;
+record_variable["value"] = DATA;
+record["time"] = time;
+
+serializeJsonPretty(doc, output);
+PUTrequest(output);
+}
+
+void PUTrequest(String json) {
+  http.beginRequest();
+  //http.put(loggingServer, "/api/v1/log-data");
+  http.put("/api/v1/log-data");
+  http.sendHeader("accept: application/json");
+  http.sendHeader("Content-Type: application/json");
+  http.sendHeader("lcmi-auth-token: swagger");
+  http.sendHeader("Content-Length", json.length());
+  http.beginBody();
+  http.print(json);
+  http.endRequest();
+}
+
+/////////////////////////////////////////////////////////////////
+/////////////////// GET REQUEST /////////////////////////////////
+/////////////////////////////////////////////////////////////////
+void GETrequest() {
+  http.beginRequest();
+  http.get("/api/v1/get-all-log-sessions");
+  http.sendHeader("accept: application/json");
+  http.sendHeader("lcmi-auth-token: swagger");
+  http.endRequest();
+}
+
+
 
 void updateio(void)
 {
@@ -554,15 +714,15 @@ void handlemodbus() {
 
 void listenForEthernetClients() {
   // listen for incoming clients
-  EthernetClient client = server.available();
+  EthernetClient sclient = server.available();
   String readString; 
-  if (client) {
+  if (sclient) {
     //Serial.println("Got a client");
     // an HTTP request ends with a blank line
     bool currentLineIsBlank = true;
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
+    while (sclient.connected()) {
+      if (sclient.available()) {
+        char c = sclient.read();
         // if you've gotten to the end of the line (received a newline
         // character) and the line is blank, the HTTP request has ended,
         // so you can send a reply
@@ -581,101 +741,101 @@ void listenForEthernetClients() {
             }   
           }
           // send a standard HTTP response header
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println("Connection: close");  // the connection will be closed after completion of the response
+          sclient.println("HTTP/1.1 200 OK");
+          sclient.println("Content-Type: text/html");
+          sclient.println("Connection: close");  // the connection will be closed after completion of the response
           if (readString.indexOf("?Autorefresh") >0 )
           {
-            client.println("Refresh: 1");  // refresh the page automatically every 5 sec
+            sclient.println("Refresh: 1");  // refresh the page automatically every 5 sec
           }
-          client.println();
-          client.println("<!DOCTYPE HTML>");
-          client.println("<html>");          
-          client.println();
-          client.println("<a href=\"/?Autorefresh\"\">AutoRefresh</a>");
-          client.println("<br />");
-          client.println("<a href=\"/\"\">StopAutoRefresh</a>");
-          client.println("<br />");
-          client.println("<a href=\"/?buttonResetFault\"\">Reset Faults</a>");
-          client.println("<br />");
+          sclient.println();
+          sclient.println("<!DOCTYPE HTML>");
+          sclient.println("<html>");          
+          sclient.println();
+          sclient.println("<a href=\"/?Autorefresh\"\">AutoRefresh</a>");
+          sclient.println("<br />");
+          sclient.println("<a href=\"/\"\">StopAutoRefresh</a>");
+          sclient.println("<br />");
+          sclient.println("<a href=\"/?buttonResetFault\"\">Reset Faults</a>");
+          sclient.println("<br />");
 
           for(int i = 0; i < NUMFLOWSENSORS; i++)
           {
-            client.print("Flow ");
-            client.print(i);
-            client.print(" Pulse period: ");
-            client.print(flowsensor[i].getflowmicros());
-            client.print("us");
-            client.println("<br />");
-            client.print("Flow ");
-            client.print(i);
-            client.print(" freq: ");
-            client.print(flowsensor[i].getflowfreq());
-            client.print("Hz");
-            client.println("<br />");
-            client.print("Flow ");
-            client.print(i);
-            client.print(" Scaled: ");
-            client.print(flowsensor[i].getflowscaled());
-            client.print("LPM");
-            client.println("<br />");
-            client.print("Flow ");
-            client.print(i);
-            client.print(" Fault: ");
-            client.print(flowsensor[i].getflowfault());
-            client.println("<br />");            
-            client.print("Temp ");
-            client.print(i);
-            client.print(" Pulse period: ");
-            client.print(flowsensor[i].gettempmicros());
-            client.print("us");
-            client.println("<br />");
-            client.print("Temp ");
-            client.print(i);
-            client.print(" freq: ");
-            client.print(flowsensor[i].gettempfreq());
-            client.print("Hz");
-            client.println("<br />");
-            client.print("Temp ");
-            client.print(i);
-            client.print(" scaled: ");
-            client.print(flowsensor[i].gettempscaled());
-            client.print("DegC");
-            client.println("<br />");
-            client.print("Temp ");
-            client.print(i);
-            client.print(" Fault: ");
-            client.print(flowsensor[i].gettempfault());
-            client.println("<br />");
+            sclient.print("Flow ");
+            sclient.print(i);
+            sclient.print(" Pulse period: ");
+            sclient.print(flowsensor[i].getflowmicros());
+            sclient.print("us");
+            sclient.println("<br />");
+            sclient.print("Flow ");
+            sclient.print(i);
+            sclient.print(" freq: ");
+            sclient.print(flowsensor[i].getflowfreq());
+            sclient.print("Hz");
+            sclient.println("<br />");
+            sclient.print("Flow ");
+            sclient.print(i);
+            sclient.print(" Scaled: ");
+            sclient.print(flowsensor[i].getflowscaled());
+            sclient.print("LPM");
+            sclient.println("<br />");
+            sclient.print("Flow ");
+            sclient.print(i);
+            sclient.print(" Fault: ");
+            sclient.print(flowsensor[i].getflowfault());
+            sclient.println("<br />");            
+            sclient.print("Temp ");
+            sclient.print(i);
+            sclient.print(" Pulse period: ");
+            sclient.print(flowsensor[i].gettempmicros());
+            sclient.print("us");
+            sclient.println("<br />");
+            sclient.print("Temp ");
+            sclient.print(i);
+            sclient.print(" freq: ");
+            sclient.print(flowsensor[i].gettempfreq());
+            sclient.print("Hz");
+            sclient.println("<br />");
+            sclient.print("Temp ");
+            sclient.print(i);
+            sclient.print(" scaled: ");
+            sclient.print(flowsensor[i].gettempscaled());
+            sclient.print("DegC");
+            sclient.println("<br />");
+            sclient.print("Temp ");
+            sclient.print(i);
+            sclient.print(" Fault: ");
+            sclient.print(flowsensor[i].gettempfault());
+            sclient.println("<br />");
           }
-          client.print("DI Byte: ");
-          client.print(dibyte, HEX);
-          client.println("<br />");
-          client.print("DO Byte: ");
-          client.print(dobyte, HEX);
-          client.println("<br />");
+          sclient.print("DI Byte: ");
+          sclient.print(dibyte, HEX);
+          sclient.println("<br />");
+          sclient.print("DO Byte: ");
+          sclient.print(dobyte, HEX);
+          sclient.println("<br />");
 
           for(int i = 0; i < NUMRTDS; i++)
           {
-            client.print("RTD Temp ");
-            client.print(i);
-            client.print(": ");
-            client.print(rtd[i]);
-            client.print("DegC");
-            client.println("<br />");
+            sclient.print("RTD Temp ");
+            sclient.print(i);
+            sclient.print(": ");
+            sclient.print(rtd[i]);
+            sclient.print("DegC");
+            sclient.println("<br />");
           }
-          client.print("Millis: ");
-          client.print(millis());
-          client.println("<br />");
-          client.print("LoopTime: ");
-          client.print(lastLoopTime);
-          client.println("<br />");
-          client.print("longestLoopTime: ");
-          client.print(longestLoopTime);
-          client.println("<br />");
-          client.print("loopcount: ");
-          client.print(loopcount);
-          client.println("<br />");
+          sclient.print("Millis: ");
+          sclient.print(millis());
+          sclient.println("<br />");
+          sclient.print("LoopTime: ");
+          sclient.print(lastLoopTime);
+          sclient.println("<br />");
+          sclient.print("longestLoopTime: ");
+          sclient.print(longestLoopTime);
+          sclient.println("<br />");
+          sclient.print("loopcount: ");
+          sclient.print(loopcount);
+          sclient.println("<br />");
           break;
         }
         if (c == '\n') {
@@ -690,7 +850,7 @@ void listenForEthernetClients() {
     // give the web browser time to receive the data
     delay(1);
     // close the connection:
-    client.stop();
+    sclient.stop();
     
   
   }
@@ -701,27 +861,27 @@ void loadConfiguration(const char *filename, Config &config) {
   File file = SD.open(filename);
 
   // Allocate a temporary JsonDocument
-  StaticJsonDocument<2048> doc;
+  DynamicJsonDocument doc(4048);
 
   // Deserialize the JSON document
   DeserializationError error = deserializeJson(doc, file);
   if (error)
     Serial.println(F("Failed to read file, using default configuration"));
-  int i = 0;
-for (JsonObject item : doc.as<JsonArray>()) {
+int i = 0;
+for (JsonObject flowsensor : doc["flowsensors"].as<JsonArray>()) {
 
-  config.flowconfig[i].tag = item["tag"].as<String>(); // "Flowsensor1", "Flowsensor2", "Flowsensor3", "Flowsensor4"
-  config.flowconfig[i].location = item["location"].as<String>(); // "Compressor Room", "Compressor Room", "Compressor Room", ...
-  config.flowconfig[i].flowunit = item["flowunit"].as<String>(); // "lpm", "lpm", "lpm", "lpm"
-  config.flowconfig[i].tempunit = item["tempunit"].as<String>(); // "degC", "degC", "degC", "degC"
-  config.flowconfig[i].maxflowscale = item["maxflowscale"]; // 20, 20, 20, 20
-  config.flowconfig[i].minflowscale = item["minflowscale"]; // 0, 0, 0, 0
-  config.flowconfig[i].flowthresh = item["flowthresh"]; // 9, 9, 9, 9
-  config.flowconfig[i].flowfreq = item["flowfreq"]; // 100, 100, 100, 100
-  config.flowconfig[i].maxtempscale = item["maxtempscale"]; // 65.56, 65.56, 65.56, 65.56
-  config.flowconfig[i].mintempscale = item["mintempscale"]; // -10, -10, -10, -10
-  config.flowconfig[i].tempfreq = item["tempfreq"]; // 100, 100, 100, 100
-  config.flowconfig[i].timeoutmicros = item["timeoutmicros"]; // 3000000, 3000000, 3000000, 3000000
+  strlcpy(config.flowconfig[i].tag, flowsensor["tag"] | "Undefined", sizeof(config.flowconfig[i].tag));
+  strlcpy(config.flowconfig[i].location, flowsensor["location"] | "Undefined", sizeof(config.flowconfig[i].location));
+  strlcpy(config.flowconfig[i].flowunit, flowsensor["flowunit"] | "lpm", sizeof(config.flowconfig[i].flowunit)); // "lpm", "lpm", "lpm", "lpm"
+  strlcpy(config.flowconfig[i].tempunit, flowsensor["tempunit"] | "degC", sizeof(config.flowconfig[i].tempunit)); // "degC", "degC", "degC", "degC"
+  config.flowconfig[i].maxflowscale = flowsensor["maxflowscale"] | DEFAULTMAXFLOWSCALE; // 20, 20, 20, 20
+  config.flowconfig[i].minflowscale = flowsensor["minflowscale"] | DEFAULTMINFLOWSCALE; // 0, 0, 0, 0
+  config.flowconfig[i].flowthresh = flowsensor["flowthresh"] | 1.0; // 9, 9, 9, 9
+  config.flowconfig[i].flowfreq = flowsensor["flowfreq"] | DEFAULTFLOWFREQ; // 100, 100, 100, 100
+  config.flowconfig[i].maxtempscale = flowsensor["maxtempscale"] | DEFAULTMAXTEMPSCALE; // 65.56, 65.56, 65.56, 65.56
+  config.flowconfig[i].mintempscale = flowsensor["mintempscale"] | DEFAULTMINTEMPSCALE; // -10, -10, -10, -10
+  config.flowconfig[i].tempfreq = flowsensor["tempfreq"] | DEFAULTTEMPFREQ; // 100, 100, 100, 100
+  config.flowconfig[i].timeoutmicros = flowsensor["timeoutmicros"] | DEFAULTTIMEOUTMICROS; // 3000000, 3000000, 3000000, 3000000
   Serial.println(config.flowconfig[i].tag);
   Serial.println(config.flowconfig[i].location);
   Serial.println(config.flowconfig[i].flowunit);
@@ -741,6 +901,33 @@ for (JsonObject item : doc.as<JsonArray>()) {
   }
   
 }
+i = 0;
+for (JsonObject tempsensor : doc["tempsensors"].as<JsonArray>()) 
+{
+  strlcpy(config.rtdconfig[i].tag, tempsensor["tag"] | "Undefined", sizeof(config.rtdconfig[i].tag)); // "Tempsensor1", "Tempsensor2", "Tempsensor3", ...
+  strlcpy(config.rtdconfig[i].location, tempsensor["location"] | "Undefined", sizeof(config.rtdconfig[i].location)); // "Compressor Room", "Compressor Room", ...
+  strlcpy(config.rtdconfig[i].tempunit, tempsensor["tempunit"] | "degC", sizeof(config.rtdconfig[i].tempunit)); // "degC", "degC", "degC", "degC"
+  Serial.println(config.rtdconfig[i].tag);
+  Serial.println(config.rtdconfig[i].location);  
+  Serial.println(config.rtdconfig[i].tempunit);
+  i++;
+  if(i >= NUMRTDS)
+  {
+  break;
+  }
+}
+
+config.valvertdnum = doc["valvertdnum"] | 0; // 0
+config.valveontemp = doc["valveontemp"] | 18.0; // 18
+config.valvedeltatemp = doc["valvedeltatemp"] | 3.0; // 3
+strlcpy(config.serverip, doc["serverip"] |"192.168.1.30", sizeof(config.serverip)); // "loggingserver"
+config.serverport = doc["serverport"] | 80; // 21
+Serial.println(config.valvertdnum);
+Serial.println(config.valveontemp);  
+Serial.println(config.valvedeltatemp);
+Serial.println(config.serverip);
+Serial.println(config.serverport);
+
 
   // Close the file (Curiously, File's destructor doesn't close the file)
   display_freeram();
@@ -820,7 +1007,7 @@ doc_3["tempfreq"] = 100;
 doc_3["timeoutmicros"] = 3000000;
 
   // Serialize JSON to file
-  if (serializeJson(doc, file) == 0) {
+  if (serializeJsonPretty(doc, file) == 0) {
     Serial.println(F("Failed to write to file"));
   }
 
@@ -847,7 +1034,114 @@ void printFile(const char *filename) {
   file.close();
 }
 
+void flashstopled()
+{
+  static uint32_t lastledtimer = 0;
+  if((nowMillis - lastledtimer) >= (LEDFLASHMILLIS /2))
+  {
+    lastledtimer = nowMillis;
+    if(dobyte & DO_STOP_LED)
+    {
+      dobyte &= ~DO_STOP_LED;
+    }
+    else
+    {
+      dobyte |= DO_STOP_LED;
+    }
+  }
+}
 
+void flashstartled()
+{
+  static uint32_t lastledtimer = 0;
+  if((nowMillis - lastledtimer) >= (LEDFLASHMILLIS /2))
+  {
+    lastledtimer = nowMillis;
+    if(dobyte & DO_START_LED)
+    {
+      dobyte &= ~DO_START_LED;
+    }
+    else
+    {
+      dobyte |= DO_START_LED;
+    }
+  }
+}
+
+void checkForNTPResync()
+{
+  unsigned long currentEpoch = rtc.getEpoch();  // current total RTC seconds
+  if (currentEpoch - ntpLastUpdate > ntpSyncTime) {   // resync time after  ntpSyncTime interval. We have this for every day above
+    if(getTimeAndDate()) {  // try to resync time from ntp server
+      Serial.println("Resync successful.");
+    }
+    else {
+      Serial.println("Resync failed.");
+    }
+  }  
+}
+
+void printTime() {  // print time and date from rtc
+  Serial.print(rtc.getHours());
+  printDigits(rtc.getMinutes());
+  printDigits(rtc.getSeconds());
+  Serial.println();
+  Serial.print(rtc.getMonth());
+  Serial.print("/");
+  Serial.print(rtc.getDay());
+  Serial.print("/");
+  Serial.println(rtc.getYear());
+  Serial.println();
+}
+
+void printDigits(int digits) {  // print preceding ':' and '0' for time
+  Serial.print(':');
+  if (digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
+
+
+// send an NTP request to the time server at the given address
+unsigned long sendNTPpacket(IPAddress& address) {
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12]  = 49;
+  packetBuffer[13]  = 0x4E;
+  packetBuffer[14]  = 49;
+  packetBuffer[15]  = 52;
+
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
+int getTimeAndDate() {  // sync time on rtc from ntp server
+  int flag = 0;
+  Udp.begin(localPort);
+  sendNTPpacket(timeServer); // send packet to ntp server
+  delay(250);
+  if (Udp.parsePacket()) {  // read response from ntp server
+    Udp.read(packetBuffer, NTP_PACKET_SIZE); // read the packet into the buffer
+    unsigned long highWord, lowWord, epoch;
+    highWord = word(packetBuffer[40], packetBuffer[41]);
+    lowWord = word(packetBuffer[42], packetBuffer[43]);
+    epoch = highWord << 16 | lowWord;
+    epoch = epoch - 2208988800 + timeZoneOffset;
+    flag = 1;
+    rtc.setEpoch(epoch);  // set rtc to up-to-date epoch
+    ntpLastUpdate = epoch;  // set last time time was synced
+  }
+  return flag;  // return true on successful update
+}
 
 extern "C" char* sbrk(int incr);
 
