@@ -13,3 +13,13 @@ C:\Users\'user'\AppData\Local\Arduino15\packages\P1AM-100\hardware\samd\1.6.21\v
 The other possible location depending on IDE version seems to be:
 
 C:\Users\'user'\Documents\ArduinoData\packages\P1AM-100\hardware\samd\1.6.21\variants\P1AM-100
+
+Libraries Used from Arduino IDE:
+
+ArduinoHttpClient 0.5.0
+ArduinoModbus 1.0.8
+ArduinoRS485 1.0.5
+RTCZero 1.6.0
+ArduinoJson 6.21.3
+SD 1.2.4
+P1AM 1.0.7
