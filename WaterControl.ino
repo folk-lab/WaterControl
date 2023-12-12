@@ -1,5 +1,9 @@
 /*
-Water Control
+Dec 2023, PHAS E-lab
+Hennings Water Control PLC
+Controls a water pump, monitoring for low-level, overload, and overpressure
+Controls a city-water valve, activating on low level, and high temperature
+Connects to logging server to log flow meters and temperature sensors
  */
 
 #include <Ethernet.h>
@@ -28,6 +32,10 @@ Water Control
 #define RTDSLOT 3 //slow location of 4RTD module
 #define NUMRTDS 4 //Number of RTDs per module
 
+//Errors ranges for RTD, if reading outside, assume sensor broken
+#define RTDMINTEMP -20.0
+#define RTDMAXTEMP 50.0
+
 //assign tag names to DI and DO channels
 
 #define DI_PRESSURE_OK 0x01
@@ -46,6 +54,9 @@ Water Control
 #define ETH_RETRANSMIT_COUNT 1
 #define ETH_RETRANSMIT_TIMEOUT 50
 
+//Modbus holding register addresses for valve-on and valve-off delta settings
+#define VALVE_ON_MB_ADDRESS 0
+#define VALVE_OFF_DELTA_MB_ADDRESS 2
 
 //These default values are for GPM flow and DegF temp for VFS50-5-1001
 /*
@@ -188,8 +199,6 @@ FlowSensor flowsensor[NUMFLOWSENSORS] =
   FlowSensor(DEFAULTMAXFLOWSCALE, DEFAULTMINFLOWSCALE, 7.0, DEFAULTFLOWFREQ, DEFAULTMAXTEMPSCALE, DEFAULTMINTEMPSCALE, 45.0, DEFAULTTEMPFREQ, DEFAULTTIMEOUTMICROS)
 };
 
-//FlowSensor flowsensor(4.2, 0, 100, 40, 140, 400, 2000000);
-
 //RTD module config: all channels on, DegC, high-side burnout, pt100, 33Hz digital filter
 const char P1_04RTD_CONFIG[] = { 0x40, 0x03, 0x60, 0x03, 0x20, 0x01, 0x80, 0x00 };
 
@@ -207,25 +216,13 @@ float valvedeltatemp = DEFAULTVALVEDELTATEMP;
 bool loggingserverconnected = false;
 
 void setup() {
-  // You can use Ethernet.init(pin) to configure the CS pin
-  //Ethernet.init(10);  // Most Arduino shields
-  //Ethernet.init(5);   // MKR ETH Shield
-  //Ethernet.init(0);   // Teensy 2.0
-  //Ethernet.init(20);  // Teensy++ 2.0
-  //Ethernet.init(15);  // ESP8266 with Adafruit FeatherWing Ethernet
-  //Ethernet.init(33);  // ESP32 with Adafruit FeatherWing Ethernet
-
-
 
   pinMode(A1, INPUT_PULLUP);
-  pinMode(A2, INPUT_PULLUP);
-  
+  pinMode(A2, INPUT_PULLUP);  
   pinMode(0, INPUT_PULLUP);
   pinMode(1, INPUT_PULLUP);
-
   pinMode(3, INPUT_PULLUP);
   pinMode(4, INPUT_PULLUP);
-
   pinMode(6, INPUT_PULLUP);
   pinMode(7, INPUT_PULLUP);
  
@@ -327,10 +324,8 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(6), pin6int, FALLING);
   attachInterrupt(digitalPinToInterrupt(7), pin7int, FALLING);
   
-
-  
-  getTimeAndDate();   // initial sync from ntp server
   rtc.begin();  // start real-time-clock
+  getTimeAndDate();   // initial sync from ntp server
   printTime();
 
   //reinitialize flowsensors with loaded config values
@@ -339,37 +334,14 @@ void setup() {
     flowsensor[i].reinit(config.flowconfig[i].maxflowscale,config.flowconfig[i].minflowscale, config.flowconfig[i].flowthresh, config.flowconfig[i].flowfreq,
     config.flowconfig[i].maxtempscale, config.flowconfig[i].mintempscale, config.flowconfig[i].tempthresh, config.flowconfig[i].tempfreq, config.flowconfig[i].timeoutmicros);
   }
-  
-  // configure a holding register at address 0x00
-  modbusTCPServer.configureHoldingRegisters(0x00, 200);
-  for(int i = 0; i < 200; i++)
-  {
-    modbusTCPServer.holdingRegisterWrite(i, (i+1) * 256);
-  }
-  float testfloat = 12.3456;
-  
-  //uint16_t register1 = ((uint32_t)testfloat >> 16) & 0xFFFF;  // right shift >> by 16bits
-  //uint16_t register2 = (uint32_t)testfloat & 0xFFFF;
-  
-  // float voltage value cast to 32bit int and split between 2x 16bit ints
-  
-  highlevelmillis = millis();
-  lowlevelmillis = millis();
-  tempmillis = millis();
-  //uint32_t dualValue1 = *((uint32_t *)&testfloat);
-  uint32_t *dualValue1 = (uint32_t *)&testfloat;
-  //uint16_t *w1 = w2 + 2;
-  //uint32_t dualValue1 = (uint32_t)testfloat;
-  //uint32_t dualValue1 = (uint32_t)testfloat;
-  uint16_t register1 = *dualValue1 >> 16;  // right shift >> by 16bits
-  uint16_t register2 = *dualValue1 & 0xFFFF;
-  //uint16_t register2 = dualValue1;
-  //uint16_t register1 = *w1;  // right shift >> by 16bits
-  //uint16_t register2 = *w2;  
-  // write values to input registers for voltage value
-  modbusTCPServer.holdingRegisterWrite(0x00, register1);
-  modbusTCPServer.holdingRegisterWrite(0x01, register2);
 
+  //Just using 4 registers for now, to save the valve on temp at registers 0-1 and valve hysteresis at registers 2-3,
+  //may change to something http based if necessary
+
+  modbusTCPServer.configureHoldingRegisters(0x00, 4);
+  
+  modbuswritefloat(VALVE_ON_MB_ADDRESS, config.valveontemp);
+  modbuswritefloat(VALVE_OFF_DELTA_MB_ADDRESS, config.valvedeltatemp);
 
 }
 
@@ -481,19 +453,20 @@ void loop() {
         if(((nowMillis - highlevelmillis) >= FLOATDELAYMILLIS) && (pumpstate == ON))
         {
           valvestate = LEVEL_FILLING;
+          //send event
         }
       }
-      //if(rtd[VALVE_RTDNUM] < valveontemp)//below temp, reset temp timer
-      if(rtd[config.valvertdnum] < config.valveontemp)//below temp, reset temp timer
-      {
-        tempmillis = nowMillis;
-      }
-      else
+      //above temp or broken, wait for timer
+      if((rtd[config.valvertdnum] >= (config.valveontemp - config.valvedeltatemp)) || (rtd[config.valvertdnum] < RTDMINTEMP) || (rtd[config.valvertdnum] > RTDMAXTEMP))
       {
         if(((nowMillis - tempmillis) >= TEMPDELAYMILLIS) && (pumpstate == ON))
         {
           valvestate = TEMP_FILLING;
         }
+      }
+      else//below temp, reset temp timer
+      {
+        tempmillis = nowMillis;
       }      
       break;
     }
@@ -522,7 +495,7 @@ void loop() {
     }
     case TEMP_FILLING:
     {
-      if(rtd[config.valvertdnum] >= (config.valveontemp - config.valvedeltatemp))//still above temp, reset delay timer
+      if((rtd[config.valvertdnum] >= (config.valveontemp - config.valvedeltatemp)) || (rtd[config.valvertdnum] < RTDMINTEMP) || (rtd[config.valvertdnum] > RTDMAXTEMP))//still above temp or broken, reset delay timer
       { 
         tempmillis = nowMillis;
       }
@@ -531,6 +504,7 @@ void loop() {
         if(nowMillis - tempmillis >= TEMPDELAYMILLIS)//if below temp for delay
         {
           valvestate = OFF;
+          //send event
         }
       }
       if(pumpstate != ON)
@@ -552,7 +526,7 @@ void loop() {
     {
       //checkForNTPResync();
       //char time[64];
-      //sprintf(time, "%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
+      //sprintf(time, "20%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
       //Serial.println(time);
       if (client.connect(loggingServer, config.serverport))
       {
@@ -571,8 +545,7 @@ void loop() {
       Serial.println("No Ethernet Link");
     }
     //If server connected, proceed
-    //if(loggingserverconnected)
-    if(1)
+    if(loggingserverconnected)
     {
       checkForNTPResync();
       char nowtime[64];
@@ -580,7 +553,12 @@ void loop() {
       Serial.println(nowtime);
       for(int i = 0; i < NUMFLOWSENSORS; i++)
       {
-        updatelogger("LOCATION", "TAG", "VARIABLE", "UNIT", 4.0, nowtime);
+        updatelogger(config.flowconfig[i].location, config.flowconfig[i].tag, "Flow", config.flowconfig[i].flowunit, flowsensor[i].getflowscaled(), nowtime);
+        updatelogger(config.flowconfig[i].location, config.flowconfig[i].tag, "Temperature", config.flowconfig[i].tempunit, flowsensor[i].gettempscaled(), nowtime);
+      }
+      for(int i = 0; i < NUMRTDS; i++)
+      {
+        updatelogger(config.rtdconfig[i].location, config.rtdconfig[i].tag, "Temperature", config.rtdconfig[i].tempunit, rtd[i], nowtime);
       }
     }    
   }  
@@ -609,7 +587,7 @@ String buildJSON(String LOCATION, String TAG, String Data, String Unit, String T
 }
 */
 
-void updatelogger(char * LOCATION, char * TAG, char * VARIABLE, char * UNIT, float DATA, String time)
+void updatelogger(char * LOCATION, char * TAG, const char * VARIABLE, char * UNIT, float DATA, String time)
 {
 String output;
 StaticJsonDocument<192> doc;
@@ -687,31 +665,60 @@ void handlemodbus() {
       // let the Modbus TCP accept the connection 
       modbusTCPServer.accept(mbclient);
       accepted = true;
-    }
-    
-    
+    }    
 
     if (mbclient.connected()) {
       // poll for Modbus TCP requests, while client connected
       modbusTCPServer.poll();
-      //Serial.println("polling");
-      //display_freeram();
-
-    }
-
-         // give the web browser time to receive the data
-      //delay(1);
-    // close the connection:
-    //Serial.println("client disconnected"); 
-//mbclient.stop();
-
-   
+      float v_on, v_off;
+      v_on = modbusreadfloat(VALVE_ON_MB_ADDRESS);
+      v_off = modbusreadfloat(VALVE_OFF_DELTA_MB_ADDRESS);      
+      if((v_on != config.valveontemp) || (v_off != config.valvedeltatemp))
+      {
+        config.valveontemp = v_on;
+        config.valvedeltatemp = v_off;
+        Serial.print("New valve-on temp: ");
+        Serial.println(config.valveontemp);
+        Serial.print("New valve-off temp: ");
+        Serial.println(config.valvedeltatemp);
+        Serial.println(F("Saving configuration..."));
+        saveConfiguration(filename, config);
+      }
+    }   
   } 
   else
   {
     accepted = false;
   }
 }
+
+//writes a float to the Modbus holding register address specified, and address + 1, float is 4 bytes, modbus register 2 bytes
+void modbuswritefloat(int address, float value)
+{
+  // float voltage value cast to 32bit int and split between 2x 16bit ints
+  uint32_t *dualValue1 = (uint32_t *)&value;
+
+  uint16_t register1 = *dualValue1 >> 16;  
+  uint16_t register2 = *dualValue1 & 0xFFFF;
+
+  modbusTCPServer.holdingRegisterWrite(address, register1);
+  modbusTCPServer.holdingRegisterWrite((address + 1), register2);
+}
+
+//reads a float from the Modbus holding register address specified, and address + 1,
+float modbusreadfloat(int address)
+{
+  uint16_t register1, register2;
+  uint32_t dualValue1;
+  register1 = modbusTCPServer.holdingRegisterRead(address);
+  register2 = modbusTCPServer.holdingRegisterRead(address + 1);
+  dualValue1 = register1;
+  dualValue1 = dualValue1 << 16;
+  dualValue1 |= register2;
+  float *returnfloat = (float *)&dualValue1;
+  return *returnfloat;
+}
+
 
 void listenForEthernetClients() {
   // listen for incoming clients
@@ -1083,7 +1090,7 @@ void printDigits(int digits) {  // print preceding ':' and '0' for time
 
 
 // send an NTP request to the time server at the given address
-unsigned long sendNTPpacket(IPAddress& address) {
+void sendNTPpacket(IPAddress& address) {
   // set all bytes in the buffer to 0
   memset(packetBuffer, 0, NTP_PACKET_SIZE);
   // Initialize values needed to form NTP request
