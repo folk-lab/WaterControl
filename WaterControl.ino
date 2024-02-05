@@ -457,7 +457,7 @@ void loop() {
         }
       }
       //above temp or broken, wait for timer
-      if((rtd[config.valvertdnum] >= (config.valveontemp - config.valvedeltatemp)) || (rtd[config.valvertdnum] < RTDMINTEMP) || (rtd[config.valvertdnum] > RTDMAXTEMP))
+      if((rtd[config.valvertdnum] >= (config.valveontemp)) || (rtd[config.valvertdnum] < RTDMINTEMP) || (rtd[config.valvertdnum] > RTDMAXTEMP))
       {
         if(((nowMillis - tempmillis) >= TEMPDELAYMILLIS) && (pumpstate == ON))
         {
