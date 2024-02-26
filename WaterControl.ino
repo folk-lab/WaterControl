@@ -58,6 +58,7 @@ Connects to logging server to log flow meters and temperature sensors
 #define VALVE_ON_MB_ADDRESS 0
 #define VALVE_OFF_DELTA_MB_ADDRESS 2
 
+//#define DEBUG_PRINT //Uncomment this to print additional debug data for sensor input period and frequency
 //These default values are for GPM flow and DegF temp for VFS50-5-1001
 /*
 #define DEFAULTMAXFLOWSCALE 5.28
@@ -769,6 +770,7 @@ void listenForEthernetClients() {
 
           for(int i = 0; i < NUMFLOWSENSORS; i++)
           {
+#ifdef DEBUGPRINT
             sclient.print("Flow ");
             sclient.print(i);
             sclient.print(" Pulse period: ");
@@ -781,6 +783,7 @@ void listenForEthernetClients() {
             sclient.print(flowsensor[i].getflowfreq());
             sclient.print("Hz");
             sclient.println("<br />");
+#endif            
             sclient.print("Flow ");
             sclient.print(i);
             sclient.print(" Scaled: ");
@@ -791,7 +794,8 @@ void listenForEthernetClients() {
             sclient.print(i);
             sclient.print(" Fault: ");
             sclient.print(flowsensor[i].getflowfault());
-            sclient.println("<br />");            
+            sclient.println("<br />");
+#ifdef DEBUGPRINT                        
             sclient.print("Temp ");
             sclient.print(i);
             sclient.print(" Pulse period: ");
@@ -804,6 +808,7 @@ void listenForEthernetClients() {
             sclient.print(flowsensor[i].gettempfreq());
             sclient.print("Hz");
             sclient.println("<br />");
+#endif            
             sclient.print("Temp ");
             sclient.print(i);
             sclient.print(" scaled: ");

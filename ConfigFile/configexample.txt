@@ -1,0 +1,87 @@
+{
+  "flowsensors": [
+    {
+      "tag": "Flowsensor1",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 9,
+      "flowfreq": 100,
+      "maxtempscale": 65.56,
+      "mintempscale": -10,
+      "tempfreq": 100,
+      "timeoutmicros": 3000000
+    },
+    {
+      "tag": "Flowsensor2",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 9,
+      "flowfreq": 100,
+      "maxtempscale": 65.56,
+      "mintempscale": -10,
+      "tempfreq": 100,
+      "timeoutmicros": 3000000
+    },
+    {
+      "tag": "Flowsensor3",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 9,
+      "flowfreq": 100,
+      "maxtempscale": 65.56,
+      "mintempscale": -10,
+      "tempfreq": 100,
+      "timeoutmicros": 3000000
+    },
+    {
+      "tag": "Flowsensor4",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 9,
+      "flowfreq": 100,
+      "maxtempscale": 65.56,
+      "mintempscale": -10,
+      "tempfreq": 100,
+      "timeoutmicros": 3000000
+    }
+  ],
+  "tempsensors": [
+    {
+      "tag": "Tempsensor1",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    },
+    {
+      "tag": "Tempsensor2",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    },
+    {
+      "tag": "Tempsensor3",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    },
+    {
+      "tag": "Tempsensor4",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    }
+  ],
+  "valvertdnum": 0,
+  "valveontemp": 18,
+  "valvedeltatemp": 3,
+  "serverip": "192.168.0.30",
+  "serverport": 21
+}
