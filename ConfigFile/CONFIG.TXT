@@ -1,0 +1,91 @@
+{
+  "flowsensors": [
+    {
+      "tag": "Flowsensor1",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 1,
+      "flowfreq": 100,
+      "maxtempscale": 65.55999756,
+      "mintempscale": -10,
+      "tempfreq": 100,
+	  "tempthresh": 22.0,
+      "timeoutmicros": 3000000
+    },
+    {
+      "tag": "Flowsensor2",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 7,
+      "flowfreq": 100,
+      "maxtempscale": 65.55999756,
+      "mintempscale": -10,
+      "tempfreq": 100,
+	  "tempthresh": 22.0,
+      "timeoutmicros": 3000000
+    },
+    {
+      "tag": "Flowsensor3",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 10,
+      "flowfreq": 100,
+      "maxtempscale": 65.55999756,
+      "mintempscale": -10,
+      "tempfreq": 100,
+	  "tempthresh": 22.0,
+      "timeoutmicros": 3000000
+    },
+    {
+      "tag": "Flowsensor4",
+      "location": "Compressor Room",
+      "flowunit": "lpm",
+      "tempunit": "degC",
+      "maxflowscale": 20,
+      "minflowscale": 0,
+      "flowthresh": 1,
+      "flowfreq": 100,
+      "maxtempscale": 65.55999756,
+      "mintempscale": -10,
+      "tempfreq": 100,
+	  "tempthresh": 22.0,
+      "timeoutmicros": 3000000
+    }
+  ],
+  "tempsensors": [
+    {
+      "tag": "Tempsensor1",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    },
+    {
+      "tag": "Tempsensor2",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    },
+    {
+      "tag": "Tempsensor3",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    },
+    {
+      "tag": "Tempsensor4",
+      "location": "Compressor Room",
+      "tempunit": "degC"
+    }
+  ],
+  "valvertdnum": 2,
+  "valveontemp": 19,
+  "valvedeltatemp": 2,
+  "serverip": "10.18.101.1",
+  "serverport": 21
+}

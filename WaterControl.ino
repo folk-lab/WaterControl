@@ -81,6 +81,8 @@ Connects to logging server to log flow meters and temperature sensors
 #define DEFAULTMINTEMPSCALE -10.0
 #define DEFAULTTEMPFREQ 100.0
 #define DEFAULTTIMEOUTMICROS 3000000
+#define DEFAULTFLOWTHRESH 1.0
+#define DEFAULTTEMPTHRESH 21.0
 volatile uint32_t lastpulseperiod[NUMPULSEINPUTS] = {0}; //pulse length in micros
 volatile uint8_t newpulseflag[NUMPULSEINPUTS] = {0}; //Set to 1 when a new pulse arrives
 // assign a MAC address for the Ethernet controller.
@@ -90,10 +92,10 @@ byte mac[] = {
   0xDF, 0x5A, 0xB8, 0x8D, 0xB1, 0xC5
 };
 // assign an IP address for the controller:
-IPAddress ip(192, 168, 1, 20);
+IPAddress ip(10, 18, 101, 14);
 //char ip[]="192.168.1.20";
 IPAddress subnet(255, 255, 255, 0); //subnet mask
-IPAddress gateway(192, 168, 1, 1); //IP Address of the gateway.
+IPAddress gateway(10, 18, 101, 1); //IP Address of the gateway.
 IPAddress dns(8, 8, 8, 8); //IP Address of the DNS server.
 IPAddress timeServer(216, 239, 35, 8);  // Google's ntp server address
 
@@ -552,6 +554,7 @@ void loop() {
       char nowtime[64];
       sprintf(nowtime, "20%d-%02d-%02dT%02d:%02d:%02dZ", rtc.getYear(), rtc.getMonth(), rtc.getDay(), rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
       Serial.println(nowtime);
+      /*
       for(int i = 0; i < NUMFLOWSENSORS; i++)
       {
         updatelogger(config.flowconfig[i].location, config.flowconfig[i].tag, "Flow", config.flowconfig[i].flowunit, flowsensor[i].getflowscaled(), nowtime);
@@ -561,6 +564,7 @@ void loop() {
       {
         updatelogger(config.rtdconfig[i].location, config.rtdconfig[i].tag, "Temperature", config.rtdconfig[i].tempunit, rtd[i], nowtime);
       }
+      */
     }    
   }  
 
@@ -632,8 +636,6 @@ void GETrequest() {
   http.endRequest();
 }
 
-
-
 void updateio(void)
 {
   char  littleEndianTemp[16];			//Array to store unformatted little endian temperature Bytes
@@ -651,7 +653,6 @@ void updateio(void)
   }
   memcpy(rtd, bigEndianTemp, (NUMRTDS *4)); //Copy 16 bytes into our float array. Floats are 4 bytes each.
 } 
-
 
 void handlemodbus() {
   // listen for incoming clients
@@ -889,11 +890,12 @@ for (JsonObject flowsensor : doc["flowsensors"].as<JsonArray>()) {
   strlcpy(config.flowconfig[i].tempunit, flowsensor["tempunit"] | "degC", sizeof(config.flowconfig[i].tempunit)); // "degC", "degC", "degC", "degC"
   config.flowconfig[i].maxflowscale = flowsensor["maxflowscale"] | DEFAULTMAXFLOWSCALE; // 20, 20, 20, 20
   config.flowconfig[i].minflowscale = flowsensor["minflowscale"] | DEFAULTMINFLOWSCALE; // 0, 0, 0, 0
-  config.flowconfig[i].flowthresh = flowsensor["flowthresh"] | 1.0; // 9, 9, 9, 9
+  config.flowconfig[i].flowthresh = flowsensor["flowthresh"] | DEFAULTFLOWTHRESH; // 9, 9, 9, 9
   config.flowconfig[i].flowfreq = flowsensor["flowfreq"] | DEFAULTFLOWFREQ; // 100, 100, 100, 100
   config.flowconfig[i].maxtempscale = flowsensor["maxtempscale"] | DEFAULTMAXTEMPSCALE; // 65.56, 65.56, 65.56, 65.56
   config.flowconfig[i].mintempscale = flowsensor["mintempscale"] | DEFAULTMINTEMPSCALE; // -10, -10, -10, -10
   config.flowconfig[i].tempfreq = flowsensor["tempfreq"] | DEFAULTTEMPFREQ; // 100, 100, 100, 100
+  config.flowconfig[i].tempthresh = flowsensor["tempthresh"] | DEFAULTTEMPTHRESH; // 100, 100, 100, 100
   config.flowconfig[i].timeoutmicros = flowsensor["timeoutmicros"] | DEFAULTTIMEOUTMICROS; // 3000000, 3000000, 3000000, 3000000
   Serial.println(config.flowconfig[i].tag);
   Serial.println(config.flowconfig[i].location);
@@ -906,6 +908,7 @@ for (JsonObject flowsensor : doc["flowsensors"].as<JsonArray>()) {
   Serial.println(config.flowconfig[i].maxtempscale);
   Serial.println(config.flowconfig[i].mintempscale);
   Serial.println(config.flowconfig[i].tempfreq);
+  Serial.println(config.flowconfig[i].tempthresh);
   Serial.println(config.flowconfig[i].timeoutmicros);
   i++;
   if(i >= NUMFLOWSENSORS)
@@ -979,6 +982,7 @@ for(int i = 0; i < NUMFLOWSENSORS; i++)
   flowsensors_i["maxtempscale"] = config.flowconfig[i].maxtempscale;
   flowsensors_i["mintempscale"] = config.flowconfig[i].mintempscale;
   flowsensors_i["tempfreq"] = config.flowconfig[i].tempfreq;
+  flowsensors_i["tempthresh"] = config.flowconfig[i].tempthresh;
   flowsensors_i["timeoutmicros"] = config.flowconfig[i].timeoutmicros;
 }
 
