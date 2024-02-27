@@ -94,9 +94,9 @@ byte mac[] = {
 // assign an IP address for the controller:
 IPAddress ip(10, 18, 101, 14);
 //char ip[]="192.168.1.20";
-IPAddress subnet(255, 255, 255, 0); //subnet mask
-IPAddress gateway(10, 18, 101, 1); //IP Address of the gateway.
-IPAddress dns(8, 8, 8, 8); //IP Address of the DNS server.
+IPAddress subnet(255, 255, 0, 0); //subnet mask
+IPAddress gateway(10, 18, 254, 1); //IP Address of the gateway.
+IPAddress dns(10, 18, 254, 1); //IP Address of the DNS server.
 IPAddress timeServer(216, 239, 35, 8);  // Google's ntp server address
 
 IPAddress loggingServer;//datalogging server to connect to, defined in config
