@@ -89,7 +89,7 @@ volatile uint8_t newpulseflag[NUMPULSEINPUTS] = {0}; //Set to 1 when a new pulse
 // fill in your address here:
 
 byte mac[] = {
-  0xDF, 0x5A, 0xB8, 0x8D, 0xB1, 0xC5
+  0xD6, 0x5A, 0xB8, 0x8D, 0xB1, 0xC5
 };
 // assign an IP address for the controller:
 IPAddress ip(10, 18, 101, 14);
