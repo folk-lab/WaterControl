@@ -756,7 +756,7 @@ void listenForEthernetClients() {
           sclient.println("Connection: close");  // the connection will be closed after completion of the response
           if (readString.indexOf("?Autorefresh") >0 )
           {
-            sclient.println("Refresh: 1");  // refresh the page automatically every 5 sec
+            sclient.println("Refresh: 1");  // refresh the page automatically every 1 sec
           }
           sclient.println();
           sclient.println("<!DOCTYPE HTML>");
@@ -777,11 +777,6 @@ void listenForEthernetClients() {
           {
 #ifdef DEBUGPRINT
             
-            sclient.print("Sensor ");
-            sclient.print(i);
-            sclient.print(" Tag: ");
-            sclient.print(config.flowconfig[i].tag);
-            sclient.println("<br />");
             sclient.print("Flow ");
             sclient.print(i);
             sclient.print(" Pulse period: ");
@@ -795,10 +790,11 @@ void listenForEthernetClients() {
             sclient.print("Hz");
             sclient.println("<br />");
 #endif            
-            sclient.print("Flow ");
+            sclient.print("Sensor ");
             sclient.print(i);
             sclient.print(" Tag: ");
-            sclient.print(flowsensor[i].getflowmicros());
+            sclient.print(config.flowconfig[i].tag);
+            sclient.println("<br />");
             sclient.print("Flow ");
             sclient.print(i);
             sclient.print(" Scaled: ");
