@@ -768,10 +768,20 @@ void listenForEthernetClients() {
           sclient.println("<br />");
           sclient.println("<a href=\"/?buttonResetFault\"\">Reset Faults</a>");
           sclient.println("<br />");
+          sclient.println("<br />");
+          sclient.print("Location: ");
+          sclient.print(config.flowconfig[0].location);
+          sclient.println("<br />");
 
           for(int i = 0; i < NUMFLOWSENSORS; i++)
           {
 #ifdef DEBUGPRINT
+            
+            sclient.print("Sensor ");
+            sclient.print(i);
+            sclient.print(" Tag: ");
+            sclient.print(config.flowconfig[i].tag);
+            sclient.println("<br />");
             sclient.print("Flow ");
             sclient.print(i);
             sclient.print(" Pulse period: ");
@@ -785,6 +795,10 @@ void listenForEthernetClients() {
             sclient.print("Hz");
             sclient.println("<br />");
 #endif            
+            sclient.print("Flow ");
+            sclient.print(i);
+            sclient.print(" Tag: ");
+            sclient.print(flowsensor[i].getflowmicros());
             sclient.print("Flow ");
             sclient.print(i);
             sclient.print(" Scaled: ");
@@ -818,7 +832,7 @@ void listenForEthernetClients() {
 #endif            
             sclient.print("Temp ");
             sclient.print(i);
-            sclient.print(" scaled: ");
+            sclient.print(" Scaled: ");
             sclient.print(flowsensor[i].gettempscaled());
             sclient.print("DegC");
             sclient.println("<br />");
@@ -847,6 +861,9 @@ void listenForEthernetClients() {
           {
             sclient.print("RTD Temp ");
             sclient.print(i);
+            sclient.print(" (");
+            sclient.print(config.rtdconfig[i].tag);
+            sclient.print(")");
             sclient.print(": ");
             sclient.print(rtd[i]);
             sclient.print("DegC");
