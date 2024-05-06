@@ -37,18 +37,18 @@ Connects to logging server to log flow meters and temperature sensors
 #define RTDMAXTEMP 50.0
 
 //assign tag names to DI and DO channels
-
-#define DI_PRESSURE_OK 0x01
-#define DI_MTR_OL_OK 0x02
-#define DI_TANK_ABOVE_LOW 0x04
-#define DI_TANK_BELOW_FULL 0x08
-#define DI_START 0x10
-#define DI_STOP 0x20
-
-#define DO_FILL_V 0x01
-#define DO_K_MOTOR 0x02
-#define DO_START_LED 0x04
-#define DO_STOP_LED 0x08
+//Digital Inputs
+#define DI_PRESSURE_OK 0x01 //Outlet pressure OK
+#define DI_MTR_OL_OK 0x02 //Motor overload OK
+#define DI_TANK_ABOVE_LOW 0x04 //Tank level above low
+#define DI_TANK_BELOW_FULL 0x08 //Tank level below high
+#define DI_START 0x10 //Start button pushed
+#define DI_STOP 0x20 //Stop button pushed
+//Digital Outputs
+#define DO_FILL_V 0x01 //City water fill-valve on
+#define DO_K_MOTOR 0x02 //Motor Contactor on
+#define DO_START_LED 0x04 //Start button illumination LED
+#define DO_STOP_LED 0x08 //Stop Button illunimation LED
 
 //Ethernet retry count and timeout in millisec
 #define ETH_RETRANSMIT_COUNT 1
