@@ -43,7 +43,7 @@ Connects to logging server to log flow meters and temperature sensors
 #define DI_TANK_ABOVE_LOW 0x04 //Tank level above low
 #define DI_TANK_BELOW_FULL 0x08 //Tank level below high
 #define DI_START 0x10 //Start button pushed
-#define DI_STOP 0x20 //Stop button pushed
+#define DI_STOP 0x20 //Stop button NOT pushed
 //Digital Outputs
 #define DO_FILL_V 0x01 //City water fill-valve on
 #define DO_K_MOTOR 0x02 //Motor Contactor on
@@ -845,10 +845,10 @@ void listenForEthernetClients() {
             sclient.println("<br />");
             sclient.println("<br />");
           }
-          sclient.print("DI Byte: ");
+          sclient.print("DI Byte: 0x");
           sclient.print(dibyte, HEX);
           sclient.println("<br />");
-          sclient.print("DO Byte: ");
+          sclient.print("DO Byte: 0x");
           sclient.print(dobyte, HEX);
           sclient.println("<br />");
           sclient.println("<br />");
