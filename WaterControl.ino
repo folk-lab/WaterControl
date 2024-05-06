@@ -29,7 +29,7 @@ Connects to logging server to log flow meters and temperature sensors
 #define LOGGERUPDATEMILLIS 5000 //Interval to update logging server values
 #define DOSLOT 1 //slot location of 8DO module
 #define DISLOT 2 //slot location of 8DI module
-#define RTDSLOT 3 //slow location of 4RTD module
+#define RTDSLOT 3 //slot location of 4RTD module
 #define NUMRTDS 4 //Number of RTDs per module
 
 //Errors ranges for RTD, if reading outside, assume sensor broken
@@ -48,7 +48,7 @@ Connects to logging server to log flow meters and temperature sensors
 #define DO_FILL_V 0x01 //City water fill-valve on
 #define DO_K_MOTOR 0x02 //Motor Contactor on
 #define DO_START_LED 0x04 //Start button illumination LED
-#define DO_STOP_LED 0x08 //Stop Button illunimation LED
+#define DO_STOP_LED 0x08 //Stop Button illumination LED
 
 //Ethernet retry count and timeout in millisec
 #define ETH_RETRANSMIT_COUNT 1
