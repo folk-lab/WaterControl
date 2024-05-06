@@ -873,6 +873,15 @@ void listenForEthernetClients() {
           sclient.print(config.valveontemp);
           sclient.print("DegC");
           sclient.println("<br />");
+          if(dobyte & DO_FILL_V)
+          {
+            sclient.print("Valve Status: ON");
+          }
+          else
+          {
+            sclient.print("Valve Status: OFF");
+          }
+          sclient.println("<br />");          
           sclient.println("<br />");
           sclient.print("Millis: ");
           sclient.print(millis());
