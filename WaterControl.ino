@@ -678,7 +678,13 @@ void handlemodbus() {
       if((v_on != config.valveontemp) || (v_off != config.valvedeltatemp))
       {
         config.valveontemp = v_on;
+        if(v_off < 0.0)//make sure v_off is positive
+        {      
+          v_off = v_off * -1.0;
+          modbuswritefloat(VALVE_OFF_DELTA_MB_ADDRESS, v_off);          
+        }
         config.valvedeltatemp = v_off;
+
         Serial.print("New valve-on temp: ");
         Serial.println(config.valveontemp);
         Serial.print("New valve-off temp: ");
@@ -873,6 +879,10 @@ void listenForEthernetClients() {
           sclient.print(config.valveontemp);
           sclient.print("DegC");
           sclient.println("<br />");
+          sclient.print("Valve Delta Temp: ");
+          sclient.print(config.valvedeltatemp);
+          sclient.print("DegC");
+          sclient.println("<br />");
           if(dobyte & DO_FILL_V)
           {
             sclient.print("Valve Status: ON");
@@ -978,9 +988,15 @@ for (JsonObject tempsensor : doc["tempsensors"].as<JsonArray>())
   }
 }
 
-config.valvertdnum = doc["valvertdnum"] | 0; // 0
-config.valveontemp = doc["valveontemp"] | 18.0; // 18
-config.valvedeltatemp = doc["valvedeltatemp"] | 3.0; // 3
+config.valvertdnum = doc["valvertdnum"] | DEFAULTVALVE_RTDNUM; // 0
+config.valveontemp = doc["valveontemp"] | DEFAULTVALVEONTEMP; // 18
+float valvedelta = doc["valvedeltatemp"] | DEFAULTVALVEDELTATEMP; // 3
+if(valvedelta < 0.0)
+{
+  valvedelta = valvedelta * -1.0;
+}
+config.valvedeltatemp = valvedelta;
+//config.valvedeltatemp = doc["valvedeltatemp"] | 3.0; // 3
 strlcpy(config.serverip, doc["serverip"] |"192.168.1.30", sizeof(config.serverip)); // "loggingserver"
 config.serverport = doc["serverport"] | 80; // 21
 Serial.println(config.valvertdnum);
