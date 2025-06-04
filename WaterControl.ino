@@ -778,6 +778,7 @@ void listenForEthernetClients() {
           sclient.print("Location: ");
           sclient.print(config.flowconfig[0].location);
           sclient.println("<br />");
+          sclient.println("<br />");
 
           for(int i = 0; i < NUMFLOWSENSORS; i++)
           {
@@ -807,17 +808,17 @@ void listenForEthernetClients() {
             sclient.print(flowsensor[i].getflowscaled());
             sclient.print("LPM");
             sclient.println("<br />");
-            sclient.print("Flow ");
-            sclient.print(i);
-            sclient.print(" Low Threshold: ");
-            sclient.print(flowsensor[i].fthresh);
-            sclient.print("LPM");
-            sclient.println("<br />");
-            sclient.print("Flow ");
-            sclient.print(i);
-            sclient.print(" Fault: ");
-            sclient.print(flowsensor[i].getflowfault());
-            sclient.println("<br />");
+            //sclient.print("Flow ");
+            //sclient.print(i);
+            //sclient.print(" Low Threshold: ");
+            //sclient.print(flowsensor[i].fthresh);
+            //sclient.print("LPM");
+            //sclient.println("<br />");
+            //sclient.print("Flow ");
+            //sclient.print(i);
+            //sclient.print(" Fault: ");
+            //sclient.print(flowsensor[i].getflowfault());
+            //sclient.println("<br />");
 #ifdef DEBUGPRINT                        
             sclient.print("Temp ");
             sclient.print(i);
@@ -838,18 +839,18 @@ void listenForEthernetClients() {
             sclient.print(flowsensor[i].gettempscaled());
             sclient.print("DegC");
             sclient.println("<br />");
-            sclient.print("Temp ");
-            sclient.print(i);
-            sclient.print(" High Threshold: ");
-            sclient.print(flowsensor[i].tthresh);
-            sclient.print("DegC");
-            sclient.println("<br />");
-            sclient.print("Temp ");
-            sclient.print(i);
-            sclient.print(" Fault: ");
-            sclient.print(flowsensor[i].gettempfault());
-            sclient.println("<br />");
-            sclient.println("<br />");
+            //sclient.print("Temp ");
+            //sclient.print(i);
+            //sclient.print(" High Threshold: ");
+            //sclient.print(flowsensor[i].tthresh);
+            //sclient.print("DegC");
+            //sclient.println("<br />");
+            //sclient.print("Temp ");
+            //sclient.print(i);
+            //sclient.print(" Fault: ");
+            //sclient.print(flowsensor[i].gettempfault());
+            //sclient.println("<br />");
+            //sclient.println("<br />");
           }
           sclient.print("DI Byte: 0x");
           sclient.print(dibyte, HEX);
@@ -875,11 +876,11 @@ void listenForEthernetClients() {
           sclient.print("Valve RTD: ");
           sclient.print(config.valvertdnum);
           sclient.println("<br />");
-          sclient.print("Valve On Temp: ");
+          sclient.print("Valve On Setpoint: ");
           sclient.print(config.valveontemp);
           sclient.print("DegC");
           sclient.println("<br />");
-          sclient.print("Valve Delta Temp: ");
+          sclient.print("Valve Delta Setpoint: ");
           sclient.print(config.valvedeltatemp);
           sclient.print("DegC");
           sclient.println("<br />");
