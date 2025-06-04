@@ -1,10 +1,10 @@
 {
   "flowsensors": [
     {
-      "tag": "Flowsensor1",
-      "location": "Compressor Room",
-      "flowunit": "lpm",
-      "tempunit": "degC",
+      "tag": "ld_ghs",
+      "location": "Hennings 101",
+      "flowunit": "LPM",
+      "tempunit": "DegC",
       "maxflowscale": 20,
       "minflowscale": 0,
       "flowthresh": 1,
@@ -12,14 +12,14 @@
       "maxtempscale": 65.55999756,
       "mintempscale": -10,
       "tempfreq": 100,
-	  "tempthresh": 22.0,
+      "tempthresh": 24,
       "timeoutmicros": 3000000
     },
     {
-      "tag": "Flowsensor2",
-      "location": "Compressor Room",
-      "flowunit": "lpm",
-      "tempunit": "degC",
+      "tag": "ld_compressor",
+      "location": "Hennings 101",
+      "flowunit": "LPM",
+      "tempunit": "DegC",
       "maxflowscale": 20,
       "minflowscale": 0,
       "flowthresh": 7,
@@ -27,14 +27,14 @@
       "maxtempscale": 65.55999756,
       "mintempscale": -10,
       "tempfreq": 100,
-	  "tempthresh": 22.0,
+      "tempthresh": 24,
       "timeoutmicros": 3000000
     },
     {
-      "tag": "Flowsensor3",
-      "location": "Compressor Room",
-      "flowunit": "lpm",
-      "tempunit": "degC",
+      "tag": "tld_compressor",
+      "location": "Hennings 101",
+      "flowunit": "LPM",
+      "tempunit": "DegC",
       "maxflowscale": 20,
       "minflowscale": 0,
       "flowthresh": 10,
@@ -42,14 +42,14 @@
       "maxtempscale": 65.55999756,
       "mintempscale": -10,
       "tempfreq": 100,
-	  "tempthresh": 22.0,
+      "tempthresh": 24,
       "timeoutmicros": 3000000
     },
     {
-      "tag": "Flowsensor4",
-      "location": "Compressor Room",
-      "flowunit": "lpm",
-      "tempunit": "degC",
+      "tag": "tld_ghs",
+      "location": "Hennings 101",
+      "flowunit": "LPM",
+      "tempunit": "DegC",
       "maxflowscale": 20,
       "minflowscale": 0,
       "flowthresh": 1,
@@ -57,35 +57,35 @@
       "maxtempscale": 65.55999756,
       "mintempscale": -10,
       "tempfreq": 100,
-	  "tempthresh": 22.0,
+      "tempthresh": 24,
       "timeoutmicros": 3000000
     }
   ],
   "tempsensors": [
     {
-      "tag": "Tempsensor1",
+      "tag": "loopin",
       "location": "Compressor Room",
       "tempunit": "degC"
     },
     {
-      "tag": "Tempsensor2",
+      "tag": "buildingin",
       "location": "Compressor Room",
       "tempunit": "degC"
     },
     {
-      "tag": "Tempsensor3",
+      "tag": "loopout",
       "location": "Compressor Room",
       "tempunit": "degC"
     },
     {
-      "tag": "Tempsensor4",
+      "tag": "buildingout",
       "location": "Compressor Room",
       "tempunit": "degC"
     }
   ],
   "valvertdnum": 2,
-  "valveontemp": 19,
-  "valvedeltatemp": 2,
-  "serverip": "10.18.101.1",
+  "valveontemp": 21,
+  "valvedeltatemp": 3,
+  "serverip": "10.18.254.1",
   "serverport": 21
 }

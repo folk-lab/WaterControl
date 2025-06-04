@@ -850,7 +850,7 @@ void listenForEthernetClients() {
             //sclient.print(" Fault: ");
             //sclient.print(flowsensor[i].gettempfault());
             //sclient.println("<br />");
-            //sclient.println("<br />");
+            sclient.println("<br />");
           }
           sclient.print("DI Byte: 0x");
           sclient.print(dibyte, HEX);
